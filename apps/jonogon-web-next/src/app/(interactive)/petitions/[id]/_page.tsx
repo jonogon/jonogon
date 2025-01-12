@@ -7,6 +7,7 @@ export const runtime = 'edge';
 import {ImageCarousel} from '@/app/(interactive)/petitions/[id]/_components/ImageCarousel';
 import {useAuthState} from '@/auth/token-manager';
 import {Button} from '@/components/ui/button';
+import {Separator} from '@/components/ui/separator';
 import {trpc} from '@/trpc/client';
 import {Share2} from 'lucide-react';
 import {useParams, useRouter, useSearchParams} from 'next/navigation';
@@ -23,6 +24,8 @@ import CommentThread from './_components/comments/Thread';
 import SuggestedPetitions from './_components/SuggestedPetitions';
 
 import {useToast} from '@/components/ui/use-toast';
+import {JobabForm} from '@/components/admin/JobabForm';
+import JobabTimeline from './_components/JobabTimeline';
 
 export default function Petition() {
     const utils = trpc.useUtils();
@@ -41,18 +44,24 @@ export default function Petition() {
         data: petition,
         refetch,
         isLoading,
-    } = trpc.petitions.get.useQuery({
-        id: petition_id!!,
-    });
+    } = trpc.petitions.get.useQuery(
+        {
+            id: petition_id!!,
+        },
+        {
+            enabled: isAuthenticated !== null,
+        },
+    );
 
     const {openShareModal} = useSocialShareStore();
 
     const isSubmitted = Boolean(searchParams.get('status') === 'submitted');
 
-    const [userVote, setUserVote] = useState(0);
+    const [userVote, setUserVote] = useState<number | null>(null);
     const [showSuccessModal, setShowSuccessModal] = useState(false);
     const [showSuggestedPetitionsModal, setShowSuggestedPetitionsModal] =
         useState(false);
+    const [showJobabForm, setShowJobabForm] = useState(false);
 
     useEffect(() => {
         if (isSubmitted) {
@@ -61,10 +70,10 @@ export default function Petition() {
     }, [isSubmitted]);
 
     useEffect(() => {
-        if (petition) {
-            setUserVote(petition?.extras.user_vote ?? 0);
+        if (petition?.extras.user_vote !== undefined) {
+            setUserVote(petition.extras.user_vote);
         }
-    }, [petition]);
+    }, [petition?.extras.user_vote]);
 
     const thumbsUpMutation = trpc.petitions.vote.useMutation({
         onSuccess: () => setShowSuggestedPetitionsModal(true),
@@ -82,7 +91,7 @@ export default function Petition() {
             return;
         }
 
-        if (userVote == 1) {
+        if (userVote === 1) {
             await clearVoteMutation.mutateAsync({
                 petition_id: petition_id!!,
             });
@@ -107,7 +116,7 @@ export default function Petition() {
             return;
         }
 
-        if (userVote == -1) {
+        if (userVote === -1) {
             await clearVoteMutation.mutateAsync({
                 petition_id: petition_id!!,
             });
@@ -227,6 +236,11 @@ export default function Petition() {
                                         NOT MODERATED YET
                                     </span>
                                 ) : null}
+                                <Button
+                                    size={'sm'}
+                                    onClick={() => setShowJobabForm(true)}>
+                                    Add জবাব
+                                </Button>
                                 {status === 'approved' ? (
                                     <Button
                                         size={'sm'}
@@ -404,7 +418,7 @@ export default function Petition() {
 
                     {petition?.data.status === 'formalized' ? (
                         <div className={'w-full my-4'}>
-                            <p
+                            <div
                                 className={
                                     'font-semibold text-black px-1 flex items-center flex-row space-x-4'
                                 }>
@@ -437,7 +451,7 @@ export default function Petition() {
                                         -টা Vote দরকার
                                     </span>{' '}
                                 </div>
-                            </p>
+                            </div>
                         </div>
                     ) : null}
 
@@ -488,6 +502,7 @@ export default function Petition() {
                             ))}
                     </div>
                 )}
+                <JobabTimeline petitionId={Number(petition_id)} />
                 <CommentThread />
             </div>
             <div className="fixed bottom-0 left-0 w-full py-2 bg-background z-20 px-4">
@@ -570,6 +585,11 @@ export default function Petition() {
 
                 <SocialShareSheet />
             </div>
+            <JobabForm
+                isOpen={showJobabForm}
+                onClose={() => setShowJobabForm(false)}
+                petitionId={Number(petition_id)}
+            />
         </>
     );
 }

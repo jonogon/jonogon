@@ -20,6 +20,14 @@ export const listJobabs = publicProcedure
         }),
     )
     .query(async ({ctx, input}) => {
+        // Get total count
+        const totalCount = await ctx.services.postgresQueryBuilder
+            .selectFrom('jobabs')
+            .select((eb) => eb.fn.count('id').as('count'))
+            .where('deleted_at', 'is', null)
+            .where('petition_id', '=', `${input.petition_id}`)
+            .executeTakeFirst();
+
         const query = ctx.services.postgresQueryBuilder
             .selectFrom('jobabs')
             .select([
@@ -36,6 +44,7 @@ export const listJobabs = publicProcedure
             ])
             .where('deleted_at', 'is', null)
             .where('petition_id', '=', `${input.petition_id}`)
+            .orderBy('responded_at', 'desc')
             .limit(input.limit)
             .offset(input.offset);
 
@@ -49,8 +58,8 @@ export const listJobabs = publicProcedure
 
         const jobabs = await query.execute();
 
-        // Get vote counts for each jobab
-        const jobabsWithVotes = await Promise.all(
+        // Get jobabs with votes and attachments
+        const jobabsWithDetails = await Promise.all(
             jobabs.map(async (jobab) => {
                 const votes = await ctx.services.postgresQueryBuilder
                     .selectFrom('jobab_votes')
@@ -63,14 +72,52 @@ export const listJobabs = publicProcedure
                     .where('nullified_at', 'is', null)
                     .executeTakeFirst();
 
+                // Get user's vote if authenticated
+                let userVote = null;
+                if (ctx.auth?.user_id) {
+                    const userVoteResult =
+                        await ctx.services.postgresQueryBuilder
+                            .selectFrom('jobab_votes')
+                            .select(['vote'])
+                            .where('jobab_id', '=', `${jobab.id}`)
+                            .where('user_id', '=', `${ctx.auth.user_id}`)
+                            .where('nullified_at', 'is', null)
+                            .executeTakeFirst();
+
+                    if (userVoteResult) {
+                        userVote = userVoteResult.vote;
+                    }
+                }
+
+                // Get attachments for each jobab
+                const attachments = await ctx.services.postgresQueryBuilder
+                    .selectFrom('jobab_attachments')
+                    .select(['id', 'filename', 'attachment'])
+                    .where('jobab_id', '=', `${jobab.id}`)
+                    .where('deleted_at', 'is', null)
+                    .execute();
+
+                // Transform attachments to include URLs
+                const transformedAttachments = await Promise.all(
+                    attachments.map(async (attachment) => ({
+                        ...attachment,
+                        url: await ctx.services.fileStorage.getFileURL(
+                            attachment.attachment,
+                        ),
+                    })),
+                );
+
                 return {
                     ...jobab,
+                    attachments: transformedAttachments,
                     vote_count: Number(votes?.vote_count || 0),
+                    user_vote: userVote,
                 };
             }),
         );
 
         return {
-            data: jobabsWithVotes,
+            data: jobabsWithDetails,
+            total: Number(totalCount?.count || 0),
         };
     });
